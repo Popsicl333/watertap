@@ -30,7 +30,14 @@ from idaes.models.unit_models import Feed, Product, Separator
 from pandas import DataFrame
 import idaes.core.util.scaling as iscale
 from watertap.core.util.initialization import check_dof, check_solve
-from watertap.unit_models.electrodialysis_1D import Electrodialysis1D
+from watertap.unit_models.electrodialysis_1D import (
+    Electrodialysis1D,
+    ElectricalOperationMode,
+    PressureDropMethod,
+    FrictionFactorMethod,
+    HydraulicDiameterMethod,
+    LimitingCurrentDensityMethod,
+)
 
 from watertap.costing import WaterTAPCosting
 from watertap.property_models.multicomp_aq_sol_prop_pack import MCASParameterBlock
@@ -64,7 +71,17 @@ def main():
     display_model_metrics(m)
 
 
-def build():
+def build(
+    operation_mode="Constant_Voltage",
+    has_pressure_change=False,
+    pressure_drop_method=None,
+    friction_factor_method=None,
+    hydraulic_diameter_method=None,
+    limiting_current_density_method=None,
+    has_nonohmic_potential_membrane=False,
+    has_Nernst_diffusion_layer=False,
+    finite_elements=20,
+):
     # ---building model---
     m = ConcreteModel()
     m.fs = FlowsheetBlock(dynamic=False)
@@ -83,11 +100,23 @@ def build():
     )  # "inlet_diluate" and "inlet_concentrate" are two separator's outlet ports that are connected to the two inlets of the ED stack.
 
     # Add electrodialysis (ED) stacks
-    m.fs.EDstack = Electrodialysis1D(
+    ed_config = dict(
         property_package=m.fs.properties,
-        operation_mode="Constant_Voltage",
-        finite_elements=20,
+        operation_mode=operation_mode,
+        finite_elements=finite_elements,
+        has_pressure_change=has_pressure_change,
+        has_nonohmic_potential_membrane=has_nonohmic_potential_membrane,
+        has_Nernst_diffusion_layer=has_Nernst_diffusion_layer,
     )
+    if pressure_drop_method is not None:
+        ed_config["pressure_drop_method"] = pressure_drop_method
+    if friction_factor_method is not None:
+        ed_config["friction_factor_method"] = friction_factor_method
+    if hydraulic_diameter_method is not None:
+        ed_config["hydraulic_diameter_method"] = hydraulic_diameter_method
+    if limiting_current_density_method is not None:
+        ed_config["limiting_current_density_method"] = limiting_current_density_method
+    m.fs.EDstack = Electrodialysis1D(**ed_config)
     m.fs.product = Product(property_package=m.fs.properties)
     m.fs.disposal = Product(property_package=m.fs.properties)
 

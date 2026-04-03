@@ -11,9 +11,9 @@
 #################################################################################
 from watertap.core.solvers import get_solver
 from idaes_flowsheet_processor.api import FlowsheetInterface
-from watertap.flowsheets.electrodialysis.electrodialysis_1stack_conc_recirc import (
+from watertap.flowsheets.electrodialysis.electrodialysis_1stack import (
     build,
-    _condition_base,
+    set_operating_conditions,
     initialize_system,
     solve,
 )
@@ -29,7 +29,7 @@ from pyomo.environ import Objective, value, units as pyunits
 
 def export_to_ui():
     return FlowsheetInterface(
-        name="Electrodialysis with concentrate recirculation",
+        name="Electrodialysis (single pass)",
         do_export=export_variables,
         do_build=build_flowsheet,
         do_solve=solve_flowsheet,
@@ -42,11 +42,11 @@ def export_to_ui():
             },
             "ProductTargetNa": {
                 "name": "ProductTargetNa",
-                "display_name": "Product Na_+ target concentration (mol/m3, optimization only)",
+                "display_name": "Product Na_+ target mass concentration (kg/m3, optimization only)",
                 "values_allowed": "float",
-                "value": 1.7094,
-                "min_val": 0.01,
-                "max_val": 100.0,
+                "value": 0.393,
+                "min_val": 0.001,
+                "max_val": 10.0,
             },
             "ElectricalMode": {
                 "name": "ElectricalMode",
@@ -58,37 +58,37 @@ def export_to_ui():
                 "name": "PressureDrop",
                 "display_name": "Pressure drop method",
                 "values_allowed": [e.name for e in PressureDropMethod],
-                "value": PressureDropMethod.Darcy_Weisbach.name,
+                "value": PressureDropMethod.none.name,
             },
             "FrictionFactor": {
                 "name": "FrictionFactor",
                 "display_name": "Friction factor method",
                 "values_allowed": [e.name for e in FrictionFactorMethod],
-                "value": FrictionFactorMethod.Gurreri.name,
+                "value": FrictionFactorMethod.fixed.name,
             },
             "HydraulicDiameter": {
                 "name": "HydraulicDiameter",
                 "display_name": "Hydraulic diameter method",
                 "values_allowed": [e.name for e in HydraulicDiameterMethod],
-                "value": HydraulicDiameterMethod.spacer_specific_area_known.name,
+                "value": HydraulicDiameterMethod.conventional.name,
             },
             "LimitingCurrentDensity": {
                 "name": "LimitingCurrentDensity",
                 "display_name": "Limiting current density method",
                 "values_allowed": [e.name for e in LimitingCurrentDensityMethod],
-                "value": LimitingCurrentDensityMethod.Theoretical.name,
+                "value": LimitingCurrentDensityMethod.InitialValue.name,
             },
             "HasNonohmic": {
                 "name": "HasNonohmic",
                 "display_name": "Nonohmic membrane potential",
                 "values_allowed": ["True", "False"],
-                "value": "True",
+                "value": "False",
             },
             "HasNernst": {
                 "name": "HasNernst",
                 "display_name": "Nernst diffusion layer",
                 "values_allowed": ["True", "False"],
-                "value": "True",
+                "value": "False",
             },
             "FiniteElements": {
                 "name": "FiniteElements",
@@ -107,36 +107,47 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
     # --- Input data ---
     # Feed conditions
     exports.add(
-        obj=fs.feed.properties[0].flow_vol_phase["Liq"],
-        name="Feed solution volume flowrate",
-        ui_units=pyunits.m**3 / pyunits.s,
-        display_units="m^3 s^-1",
+        obj=fs.feed.properties[0].flow_mol_phase_comp["Liq", "H2O"],
+        name="Feed H2O molar flow rate",
+        ui_units=pyunits.mol / pyunits.s,
+        display_units="mol/s",
         rounding=3,
-        description="Inlet water mass flowrate",
+        description="Inlet water molar flow rate",
         is_input=True,
         input_category="Feed",
-        is_output=True,
-        output_category="Feed",
+        is_output=False,
     )
     exports.add(
-        obj=fs.feed.properties[0].conc_mol_phase_comp["Liq", "Na_+"],
-        name="Feed Na_+ molar concentration",
-        ui_units=pyunits.mol / pyunits.m**3,
-        display_units="mol m^-3",
-        rounding=3,
-        description="Molar concentration of Na_+ ions in the feed solution",
+        obj=fs.feed.properties[0].flow_mol_phase_comp["Liq", "Na_+"],
+        name="Feed Na_+ molar flow rate",
+        ui_units=pyunits.mol / pyunits.s,
+        display_units="mol/s",
+        rounding=6,
+        description="Molar flow rate of Na_+ ions in the feed solution",
+        is_input=True,
+        input_category="Feed",
+        is_output=False,
+    )
+    exports.add(
+        obj=fs.feed.properties[0].flow_mol_phase_comp["Liq", "Cl_-"],
+        name="Feed Cl_- molar flow rate",
+        ui_units=pyunits.mol / pyunits.s,
+        display_units="mol/s",
+        rounding=6,
+        description="Molar flow rate of Cl_- ions in the feed solution",
         is_input=True,
         input_category="Feed",
         is_output=False,
     )
 
+    # Separator
     exports.add(
-        obj=fs.feed.properties[0].conc_mol_phase_comp["Liq", "Cl_-"],
-        name="feed Cl_- molar concentration",
-        ui_units=pyunits.mol / pyunits.m**3,
-        display_units="mol m^-3",
-        rounding=3,
-        description="Molar concentration of Cl_- ions in the feed solution",
+        obj=fs.separator.split_fraction[0, "inlet_diluate"],
+        name="Separator split fraction (diluate)",
+        ui_units=pyunits.dimensionless,
+        display_units="fraction",
+        rounding=2,
+        description="Fraction of feed directed to the diluate channel",
         is_input=True,
         input_category="Feed",
         is_output=False,
@@ -203,7 +214,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         is_output=True,
         output_category="ED stack",
     )
-
     exports.add(
         obj=fs.EDstack.spacer_porosity,
         name="ED spacer porosity",
@@ -215,19 +225,17 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="ED stack",
         is_output=False,
     )
-
     exports.add(
-        obj=fs.EDstack.spacer_specific_area,
-        name="ED spacer specific surface area",
-        ui_units=pyunits.meter**-1,
-        display_units="m^-1",
-        rounding=0,
-        description="Specific surface area of the flow spacer",
+        obj=fs.EDstack.spacer_conductivity_coefficient,
+        name="ED spacer conductivity coefficient",
+        ui_units=pyunits.dimensionless,
+        display_units="",
+        rounding=2,
+        description="Conductivity coefficient of the flow spacer",
         is_input=True,
         input_category="ED stack",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.electrodes_resistance,
         name="ED electrode resistance",
@@ -239,7 +247,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="ED stack",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.current_utilization,
         name="ED current utilization coefficient",
@@ -250,19 +257,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         is_input=True,
         input_category="ED stack",
         is_output=False,
-    )
-
-    exports.add(
-        obj=fs.recovery_vol_H2O,
-        name="System water recovery by volume",
-        ui_units=pyunits.dimensionless,
-        display_units="fraction",
-        rounding=2,
-        description="Product water recovery by volume",
-        is_input=True,
-        input_category="ED stack",
-        is_output=True,
-        output_category="ED stack",
     )
 
     # Membrane-related properties
@@ -288,7 +282,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.water_permeability_membrane["cem"],
         name="Water osmosis permeability of CEM",
@@ -311,7 +304,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.membrane_areal_resistance["cem"],
         name="Areal resistance of CEM",
@@ -325,7 +317,7 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
     )
     exports.add(
         obj=fs.EDstack.membrane_areal_resistance["aem"],
-        name="Areal resistnace of AEM",
+        name="Areal resistance of AEM",
         ui_units=pyunits.ohm * pyunits.meter**2,
         display_units="ohm m^2",
         rounding=2,
@@ -334,7 +326,28 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
+    exports.add(
+        obj=fs.EDstack.membrane_areal_resistance_coef["cem"],
+        name="Areal resistance coefficient of CEM",
+        ui_units=pyunits.ohm * pyunits.meter**2 * pyunits.mol / pyunits.m**3,
+        display_units="ohm m^2 mol m^-3",
+        rounding=2,
+        description="Areal resistance coefficient of the cation exchange membrane",
+        is_input=True,
+        input_category="Membrane properties",
+        is_output=False,
+    )
+    exports.add(
+        obj=fs.EDstack.membrane_areal_resistance_coef["aem"],
+        name="Areal resistance coefficient of AEM",
+        ui_units=pyunits.ohm * pyunits.meter**2 * pyunits.mol / pyunits.m**3,
+        display_units="ohm m^2 mol m^-3",
+        rounding=2,
+        description="Areal resistance coefficient of the anion exchange membrane",
+        is_input=True,
+        input_category="Membrane properties",
+        is_output=False,
+    )
     exports.add(
         obj=fs.EDstack.membrane_thickness["cem"],
         name="Thickness of CEM",
@@ -357,7 +370,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.solute_diffusivity_membrane["cem", "Na_+"],
         name="Na_+ diffusivity as solute in CEM",
@@ -369,7 +381,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.solute_diffusivity_membrane["aem", "Na_+"],
         name="Na_+ diffusivity as solute in AEM",
@@ -381,7 +392,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.solute_diffusivity_membrane["cem", "Cl_-"],
         name="Cl_- diffusivity as solute in CEM",
@@ -393,7 +403,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.solute_diffusivity_membrane["aem", "Cl_-"],
         name="Cl_- diffusivity as solute in AEM",
@@ -405,7 +414,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         input_category="Membrane properties",
         is_output=False,
     )
-
     exports.add(
         obj=fs.EDstack.ion_trans_number_membrane["cem", "Na_+"],
         name="Na_+ transport number in CEM",
@@ -448,31 +456,6 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         description="Cl_- transport number in the anion exchange membrane",
         is_input=True,
         input_category="Membrane properties",
-        is_output=False,
-    )
-
-    # Feed pump properties
-    exports.add(
-        obj=fs.pump0.efficiency_pump[0],
-        name="Concentrate pump efficiency",
-        ui_units=pyunits.dimensionless,
-        display_units="fraction",
-        rounding=2,
-        description="Efficiency of concentrate feed pump",
-        is_input=True,
-        input_category="Feed Pump",
-        is_output=False,
-    )
-
-    exports.add(
-        obj=fs.pump1.efficiency_pump[0],
-        name="Diluate pump efficiency",
-        ui_units=pyunits.dimensionless,
-        display_units="fraction",
-        rounding=2,
-        description="Efficiency of diluate feed pump",
-        is_input=True,
-        input_category="Feed Pump",
         is_output=False,
     )
 
@@ -555,14 +538,15 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         is_output=False,
     )
 
+    # --- Output data ---
     # Feed
     exports.add(
-        obj=fs.feed_salinity,
-        name="Feed NaCl mass concentration",
-        ui_units=pyunits.kg / pyunits.m**3,
-        display_units="kg m^-3",
-        rounding=2,
-        description="Feed NaCl mass concentration",
+        obj=fs.feed.properties[0].flow_vol_phase["Liq"],
+        name="Feed volume flow rate",
+        ui_units=pyunits.m**3 / pyunits.s,
+        display_units="m^3/s",
+        rounding=6,
+        description="Feed volumetric flow rate",
         is_input=False,
         is_output=True,
         output_category="Feed",
@@ -570,23 +554,12 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
 
     # Product
     exports.add(
-        obj=fs.prod.properties[0].flow_vol_phase["Liq"],
+        obj=fs.product.properties[0].flow_vol_phase["Liq"],
         name="Product volumetric flow rate",
         ui_units=pyunits.m**3 / pyunits.hr,
         display_units="m3/h",
         rounding=2,
         description="Product water volumetric flow rate",
-        is_input=False,
-        is_output=True,
-        output_category="Product",
-    )
-    exports.add(
-        obj=fs.prod.properties[0].conc_mol_phase_comp["Liq", "Na_+"],
-        name="Product NaCl molar concentration",
-        ui_units=pyunits.mol / pyunits.meter**3,
-        display_units="mol m^-3",
-        rounding=3,
-        description="Product water NaCl molar concentration",
         is_input=False,
         is_output=True,
         output_category="Product",
@@ -605,23 +578,12 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
 
     # Disposal
     exports.add(
-        obj=fs.disp.properties[0].flow_vol_phase["Liq"],
+        obj=fs.disposal.properties[0].flow_vol_phase["Liq"],
         name="Disposal volumetric flow rate",
         ui_units=pyunits.m**3 / pyunits.hr,
         display_units="m3/h",
         rounding=2,
         description="Disposal water volumetric flow rate",
-        is_input=False,
-        is_output=True,
-        output_category="Disposal",
-    )
-    exports.add(
-        obj=fs.disp.properties[0].conc_mol_phase_comp["Liq", "Na_+"],
-        name="Disposal NaCl molar concentration",
-        ui_units=pyunits.mol / pyunits.meter**3,
-        display_units="mol m^-3",
-        rounding=3,
-        description="Disposal water NaCl molar concentration",
         is_input=False,
         is_output=True,
         output_category="Disposal",
@@ -635,11 +597,21 @@ def export_variables(flowsheet=None, exports=None, build_options=None, **kwargs)
         description="Disposal water NaCl mass concentration",
         is_input=False,
         is_output=True,
-        output_category="Product",
+        output_category="Disposal",
     )
 
     # System metrics
-
+    exports.add(
+        obj=fs.EDstack.recovery_mass_H2O[0],
+        name="Water recovery by mass",
+        ui_units=pyunits.dimensionless,
+        display_units="fraction",
+        rounding=3,
+        description="Water recovery by mass",
+        is_input=False,
+        is_output=True,
+        output_category="System metrics",
+    )
     exports.add(
         obj=fs.mem_area,
         name="Membrane area of CEM and AEM",
@@ -717,21 +689,10 @@ def build_flowsheet(build_options=None, **kwargs):
 
     solver = get_solver()
 
-    # build, set, and initialize
+    # build, set operating conditions, and initialize
     build_kwargs = _parse_build_options(build_options)
     m = build(**build_kwargs)
-    init_arg = {
-        ("flow_vol_phase", ("Liq")): 5.2e-4,
-        ("conc_mol_phase_comp", ("Liq", "Na_+")): 34.188,
-        ("conc_mol_phase_comp", ("Liq", "Cl_-")): 34.188,
-    }  # Corresponding to C_feed = 2g/L
-    m.fs.feed.properties.calculate_state(
-        init_arg,
-        hold_state=True,
-    )
-    m.fs.EDstack.voltage_applied[0].fix(10)
-    m.fs.recovery_vol_H2O.fix(0.7)
-    _condition_base(m)
+    set_operating_conditions(m)
 
     # the UI sets `capital_recovery_factor`, so unfix `wacc`
     m.fs.costing.wacc.unfix()
@@ -740,34 +701,29 @@ def build_flowsheet(build_options=None, **kwargs):
     initialize_system(m, solver=solver)
     solve(m, solver=solver)
 
-    # Optimization mode: minimize LCOW by unfixing voltage, cell_pair_num, and cell_length
+    # Optimization mode: minimize LCOW by unfixing voltage and cell_pair_num
     if build_options is not None and build_options["OperationMode"].value == "Optimization":
-        ed = m.fs.EDstack
-        # Compute a safe upper bound for voltage based on limiting current density
-        ulim = (
-            ed.voltage_x[0, 0].value
-            / ed.current_density_x[0, 0].value
-            * ed.current_dens_lim_x[0, 0].value
-            * 1.5
-        )
-        ed.voltage_applied[0].unfix()
-        ed.voltage_applied[0].setlb(0.1)
-        ed.voltage_applied[0].setub(ulim)
-        ed.cell_pair_num.unfix()
-        ed.cell_pair_num.setlb(10)
-        ed.cell_pair_num.setub(1000)
-        ed.cell_length.unfix()
-
-        # Fix product concentration target
-        product_target = build_options["ProductTargetNa"].value
-        m.fs.prod.properties[0].conc_mol_phase_comp["Liq", "Na_+"].fix(product_target)
-
-        # Minimize LCOW
         m.fs.objective = Objective(expr=m.fs.costing.LCOW)
+
+        m.fs.EDstack.voltage_applied[0].unfix()
+        m.fs.EDstack.cell_pair_num.unfix()
+        m.fs.EDstack.cell_pair_num.set_value(30)
+
+        m.fs.EDstack.voltage_applied[0].setlb(0.5)
+        m.fs.EDstack.voltage_applied[0].setub(20)
+        m.fs.EDstack.cell_pair_num.setlb(5)
+        m.fs.EDstack.cell_pair_num.setub(500)
+
+        # Fix product concentration target (Na_+ mass concentration in kg/m3)
+        product_target = build_options["ProductTargetNa"].value
+        m.fs.product.properties[0].conc_mass_phase_comp["Liq", "Na_+"].fix(
+            product_target
+        )
+
         solve(m, solver=solver)
 
         # Round cell pair number to integer and re-solve
-        ed.cell_pair_num.fix(round(value(ed.cell_pair_num)))
+        m.fs.EDstack.cell_pair_num.fix(round(value(m.fs.EDstack.cell_pair_num)))
         solve(m, solver=solver)
 
     return m

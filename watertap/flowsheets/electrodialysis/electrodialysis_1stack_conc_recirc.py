@@ -109,7 +109,17 @@ def main():
     return m
 
 
-def build():
+def build(
+    operation_mode=ElectricalOperationMode.Constant_Voltage,
+    has_pressure_change=True,
+    pressure_drop_method=PressureDropMethod.Darcy_Weisbach,
+    friction_factor_method=FrictionFactorMethod.Gurreri,
+    hydraulic_diameter_method=HydraulicDiameterMethod.spacer_specific_area_known,
+    limiting_current_density_method=LimitingCurrentDensityMethod.Theoretical,
+    has_nonohmic_potential_membrane=True,
+    has_Nernst_diffusion_layer=True,
+    finite_elements=20,
+):
     # ---building model---
     m = ConcreteModel()
     m.fs = FlowsheetBlock(dynamic=False)
@@ -142,15 +152,15 @@ def build():
     # Add electrodialysis (ED) stacks
     m.fs.EDstack = Electrodialysis1D(
         property_package=m.fs.properties,
-        operation_mode=ElectricalOperationMode.Constant_Voltage,
-        finite_elements=20,
-        has_pressure_change=True,
-        has_nonohmic_potential_membrane=True,
-        has_Nernst_diffusion_layer=True,
-        limiting_current_density_method=LimitingCurrentDensityMethod.Theoretical,
-        pressure_drop_method=PressureDropMethod.Darcy_Weisbach,
-        hydraulic_diameter_method=HydraulicDiameterMethod.spacer_specific_area_known,
-        friction_factor_method=FrictionFactorMethod.Gurreri,
+        operation_mode=operation_mode,
+        finite_elements=finite_elements,
+        has_pressure_change=has_pressure_change,
+        has_nonohmic_potential_membrane=has_nonohmic_potential_membrane,
+        has_Nernst_diffusion_layer=has_Nernst_diffusion_layer,
+        limiting_current_density_method=limiting_current_density_method,
+        pressure_drop_method=pressure_drop_method,
+        hydraulic_diameter_method=hydraulic_diameter_method,
+        friction_factor_method=friction_factor_method,
     )
     m.fs.sepa1 = Separator(
         property_package=m.fs.properties,
